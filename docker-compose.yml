@@ -1,0 +1,80 @@
+version: '3.8'
+
+volumes:
+  node_modules:
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: links_app
+    ports:
+      - '3000:3000'
+    working_dir: '/usr/src/app'
+    volumes:
+      - .:/usr/src/app
+      - node_modules:/usr/src/app/node_modules
+    depends_on:
+      - mysql
+    tty: true
+    command: bash -c 'while !</dev/tcp/mysql/3306; do sleep 1; done; apt update && apt install -y git && yarn && yarn typeorm migration:run -d ormconfig.ts && yarn nest start --watch'
+    links:
+      - mysql
+      - mailhog
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+  mysql:
+    image: mysql:8.0.29
+    container_name: links_mysql
+    command: |
+      mysqld --default-authentication-plugin=mysql_native_password
+            --character-set-server=utf8mb4
+            --collation-server=utf8mb4_unicode_ci
+    ports:
+      - '3306:3306'
+    expose:
+      - 3306
+    environment:
+      MYSQL_ROOT_PASSWORD: links
+      MYSQL_USER: links
+      MYSQL_PASSWORD: links
+      MYSQL_DATABASE: links_db
+      TZ: 'Africa/Lagos'
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: links_mailhog
+    ports:
+      - '8025:8025'
+      - '1025:1025'
+  minio:
+    image: minio/minio:latest
+    container_name: 'minio'
+    ports:
+      - 9000:9000
+      - 9001:9001
+    environment:
+      - MINIO_ROOT_USER=minio
+      - MINIO_ROOT_PASSWORD=miniopassword
+    command: ['server', '/data', '--console-address', ':9001']
+    volumes:
+      - ./docker/minio/data:/data
+
+  miniomc_runs_only_startup:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 minio miniopassword;
+      /usr/bin/mc policy set public myminio/links-local-webapp;
+      exit 0;
+      "
